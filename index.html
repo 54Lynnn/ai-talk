@@ -303,6 +303,11 @@ body {
   background: var(--surface);
   border-top: 1px solid var(--border);
   display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.input-area .input-row {
+  display: flex;
   gap: 12px;
   align-items: flex-end;
 }
@@ -336,6 +341,56 @@ body {
 }
 .input-area .send-btn:hover { opacity: .9; }
 .input-area .send-btn:disabled { opacity: .4; cursor: not-allowed; }
+.upload-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+  color: var(--accent);
+  font-size: 22px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .2s;
+  line-height: 1;
+  padding: 0;
+}
+.upload-btn:hover { border-color: var(--accent); }
+.image-preview {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0 0;
+  flex-wrap: wrap;
+}
+.image-preview img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.image-preview .remove-img {
+  position: relative;
+}
+.image-preview .remove-img::after {
+  content: '×';
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 16px;
+  height: 16px;
+  background: var(--red);
+  color: white;
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
 
 /* Modal */
 .modal-overlay {
@@ -461,8 +516,13 @@ body {
   <div class="messages" id="messages"></div>
 
   <div class="input-area">
-    <textarea id="chatInput" rows="1" placeholder="输入消息..." oninput="autoResize(this)" onkeydown="onKeyDown(event)"></textarea>
-    <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+    <div id="imagePreview" class="image-preview" style="display:none"></div>
+    <div class="input-row">
+      <button class="upload-btn" onclick="document.getElementById('fileInput').click()">+</button>
+      <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleImageUpload(event)">
+      <textarea id="chatInput" rows="1" placeholder="输入消息..." oninput="autoResize(this)" onkeydown="onKeyDown(event)"></textarea>
+      <button class="send-btn" id="sendBtn" onclick="sendMessage()">发送</button>
+    </div>
   </div>
 </div>
 
@@ -484,6 +544,7 @@ let currentMode = 'free';
 let sopStep = 0;
 let loading = false;
 let isMobile = false;
+let pendingImages = [];
 
 // ===== 设备检测 =====
 (function detectDevice() {
@@ -758,6 +819,49 @@ async function loadHistory() {
   } catch(e) { console.error('loadHistory', e); }
 }
 
+// ===== 图片上传 =====
+async function handleImageUpload(event) {
+  const files = event.target.files;
+  if (!files.length) return;
+  const preview = document.getElementById('imagePreview');
+  preview.style.display = 'flex';
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const r = await fetch(API + '/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token },
+        body: formData
+      });
+      const d = await r.json();
+      if (d.url) {
+        const url = d.url.startsWith('http') ? d.url : API + d.url;
+        pendingImages.push(url);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'remove-img';
+        wrapper.style.position = 'relative';
+        wrapper.style.cursor = 'pointer';
+        const img = document.createElement('img');
+        img.src = url;
+        const idx = pendingImages.length - 1;
+        wrapper.onclick = () => { pendingImages.splice(idx, 1); wrapper.remove(); if (!pendingImages.length) preview.style.display = 'none'; };
+        wrapper.appendChild(img);
+        preview.appendChild(wrapper);
+      }
+    } catch(e) { console.error('upload', e); }
+  }
+  event.target.value = '';
+}
+
+function clearPendingImages() {
+  pendingImages = [];
+  const preview = document.getElementById('imagePreview');
+  preview.innerHTML = '';
+  preview.style.display = 'none';
+}
+
 async function sendMessage() {
   const input = document.getElementById('chatInput');
   const msg = input.value.trim();
@@ -765,13 +869,14 @@ async function sendMessage() {
   input.value = '';
   input.style.height = 'auto';
   addMsg('user', msg, {});
+  clearPendingImages();
   loading = true;
   document.getElementById('sendBtn').disabled = true;
   try {
     const r = await fetch(API + '/api/chat', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, mode: currentMode })
+      body: JSON.stringify({ message: msg, mode: currentMode, image_urls: pendingImages.length ? pendingImages : undefined })
     });
     const d = await r.json();
     if (r.status === 401) { token=''; localStorage.removeItem('web_token'); location.reload(); return; }
