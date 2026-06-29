@@ -850,9 +850,8 @@ async function handleImageUpload(event) {
   preview.style.display = 'flex';
   for (const file of files) {
     if (!file.type.startsWith('image/')) continue;
-    const compressed = await compressImage(file);
     const formData = new FormData();
-    formData.append('file', compressed);
+    formData.append('file', file);
     try {
       const r = await fetch(API + '/api/upload', {
         method: 'POST',
